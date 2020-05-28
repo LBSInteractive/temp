@@ -1,0 +1,661 @@
+package com.davivienda.piac.delegate.autenticacion;
+
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.TimeoutException;
+
+import org.apache.cxf.configuration.security.AuthorizationPolicy;
+import org.apache.cxf.frontend.ClientProxy;
+import org.apache.cxf.transport.http.HTTPConduit;
+import org.apache.cxf.transports.http.configuration.HTTPClientPolicy;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.davivienda.piac.api.common.excepciones.NoDataException;
+import com.davivienda.piac.common.utils.MapeadorDatosWs;
+import com.davivienda.piac.common.utils.NumericFormat;
+import com.davivienda.piac.common.utils.StringFormat;
+import com.davivienda.piac.db.homologacion.main.MainDataBase;
+import com.davivienda.piac.db.homologacion.model.BiometricoWifiDto;
+import com.davivienda.pic.delegate.autenticacion.beans.BiometricoWifiResType;
+
+import co.com.bytte.casb.ConsultaClienteRequest;
+import co.com.bytte.casb.ConsultaClienteResponse2;
+import co.com.bytte.casb.IServicioAutenticacionMCD;
+import co.com.bytte.casb.MCDAutenticacionRequest;
+import co.com.bytte.casb.MCDAutenticacionResponse;
+import co.com.bytte.casb.MCDListaDispositivosRequest;
+import co.com.bytte.casb.MCDListaDispositivosResponse;
+import co.com.bytte.casb.ServicioAutenticacionMCD;
+import co.com.bytte.casb.WSCASBServiceV2;
+import co.com.bytte.casb.WSCASBServiceV2Soap;
+
+public class WebServiceClientsDelegate {
+	private static Logger LOGGER = LoggerFactory.getLogger(WebServiceClientsDelegate.class);
+	private static WebServiceClientsDelegate instance = null;
+	private static final String QUERY_REQUEST = "-Query-Request";
+	private static final String QUERY_RESPONSE = "-Query-Response";
+	private static final String TOTAL = "total:";
+	private static final String JORNADA = ",jornada:";
+	private static final String CANAL = ",canal:";
+	private static final String PERFIL = ",perfil:";
+	private static final String VERSION = ",version:";
+	private static final String CACEPTACION = ",cAceptacion:";
+	private static final String ULTMSG = ",ultMsg:";
+	private static final String CODRESPUESTA = ",codRespuesta:";
+
+	/**
+	 * Constructor
+	 *
+	 */
+	private WebServiceClientsDelegate() {
+	}
+
+	/**
+	 * Retorna unica instancia del objeto
+	 * 
+	 * @return ConfiguracionNoPresencial
+	 */
+	public static synchronized WebServiceClientsDelegate getInstance() {
+		if (instance == null)
+			instance = new WebServiceClientsDelegate();
+		return instance;
+	}
+
+	public Map<String, Object> consultaCliente(Map<String, Object> datosServicio)
+			throws NoDataException, TimeoutException {
+		writeInitInfo(StringFormat.trim(datosServicio.get("rowId")), "cliente consultaCliente");
+		if (LOGGER.isDebugEnabled()) {
+			LOGGER.debug("[RowId: " + StringFormat.trim(datosServicio.get("rowId")) + "] Parametros:" + " nroDocumento:"
+					+ datosServicio.get("nroDocumento"));
+		}
+		Map<String, Object> mapaRetorno = new HashMap<String, Object>();
+
+		try {
+			// Configuracion propia del webservice
+			final String user = StringFormat.trim(datosServicio.get("User"));
+			final String password = StringFormat.trim(datosServicio.get("Password"));
+			final long timeoutConnection = NumericFormat.parseLong(datosServicio.get("Timeout.Connection"));
+			final long timeoutReceive = NumericFormat.parseLong(datosServicio.get("Timeout.Receive"));
+
+			String wsdl = StringFormat.trim(datosServicio.get("ws.endpoint"));
+			LOGGER.info("[RowId: " + StringFormat.trim(datosServicio.get("rowId")) + "] WSDL: " + wsdl);
+			LOGGER.info("[RowId: " + StringFormat.trim(datosServicio.get("rowId")) + "] User: " + user);
+			LOGGER.info("[RowId: " + StringFormat.trim(datosServicio.get("rowId")) + "] Timeout.Connection: "
+					+ timeoutConnection);
+			LOGGER.info("[RowId: " + StringFormat.trim(datosServicio.get("rowId")) + "] Timeout.Receive: "
+					+ timeoutReceive);
+
+			URL url = new URL(wsdl);
+			WSCASBServiceV2 clienteWS = new WSCASBServiceV2(url);
+			WSCASBServiceV2Soap port = clienteWS.getWSCASBServiceV2Soap();
+
+			org.apache.cxf.endpoint.Client client = ClientProxy.getClient(port);
+			HTTPConduit conduit = (HTTPConduit) client.getConduit();
+			AuthorizationPolicy au = new AuthorizationPolicy();
+			au.setUserName(user);
+			au.setPassword(password);
+			conduit.setAuthorization(au);
+			HTTPClientPolicy policy = conduit.getClient();
+			policy.setConnectionTimeout(timeoutConnection);
+			policy.setReceiveTimeout(timeoutReceive);
+
+			ConsultaClienteRequest requestType = new ConsultaClienteRequest();
+
+			/** DATA */
+			requestType.setNoDocumento(StringFormat.trim(datosServicio.get("nroDocumento")));
+
+			String cuerpo = TOTAL + StringFormat.trim(datosServicio.get("Total")) + JORNADA
+					+ StringFormat.trim(datosServicio.get("Jornada")) + CANAL
+					+ StringFormat.trim(datosServicio.get("Canal")) + PERFIL
+					+ StringFormat.trim(datosServicio.get("Perfil")) + VERSION
+					+ StringFormat.trim(datosServicio.get("VersionServicio"));
+
+			LogTrxDelegate.getInstance().grabarLogTransaccional(StringFormat.trim(datosServicio.get("rowId")),
+					StringFormat.trim(datosServicio.get("Usuario")), "", "",
+					StringFormat.trim(datosServicio.get("NombreOperacion")) + QUERY_REQUEST, cuerpo);
+			ConsultaClienteResponse2 respuesta = port.consultaCliente(requestType);
+
+			if (respuesta == null) {
+				LOGGER.info("[RowId: " + StringFormat.trim(datosServicio.get("rowId")) + "] Respuesta es nula");
+				throw new TimeoutException(
+						"Mensaje de respuesta se demoro mas de [" + timeoutConnection + "] milisegundos");
+			} else if (respuesta.getCliente() == null) {
+				LOGGER.info("[RowId: " + StringFormat.trim(datosServicio.get("rowId")) + "] Cliente nulo");
+				throw new NoDataException();
+			}
+
+			mapaRetorno = MapeadorDatosWs.retornaValoresWS(respuesta.getCliente());
+
+			if (mapaRetorno.isEmpty()) {
+				LOGGER.info("[RowId: " + StringFormat.trim(datosServicio.get("rowId")) + "] Cliente nulo++");
+				throw new NoDataException();
+			}
+
+			mapaRetorno.put("mensaje", respuesta.getMensaje());
+			mapaRetorno.put("codMsgRespuesta", "0");
+			mapaRetorno.put("caracterAceptacion", "B");
+
+			cuerpo = TOTAL + StringFormat.trim(mapaRetorno.get("total")) + CACEPTACION
+					+ StringFormat.trim(mapaRetorno.get("caracterAceptacion")) + ULTMSG
+					+ StringFormat.trim(mapaRetorno.get("ultimoMensaje")) + CODRESPUESTA
+					+ StringFormat.trim(mapaRetorno.get("codMsgRespuesta"));
+			LogTrxDelegate.getInstance().grabarLogTransaccional(StringFormat.trim(datosServicio.get("rowId")), "", "",
+					"", StringFormat.trim(mapaRetorno.get("nombreOperacion")) + QUERY_RESPONSE, cuerpo);
+
+		} catch (MalformedURLException e) {
+			mapaRetorno.put("codMsgRespuesta", "5");
+			mapaRetorno.put("msgRespuesta", "Ha ocurrido un error inesperado.");
+			datosServicio.put("Password", "");
+			writeError(StringFormat.trim(datosServicio.get("rowId")), e, datosServicio);
+		}
+		writeFinInfo(StringFormat.trim(datosServicio.get("rowId")), "cliente consultaCliente");
+		return mapaRetorno;
+	}
+
+	public Map<String, Object> consultaDispositivosMCD(Map<String, Object> datosServicio)
+			throws NoDataException, TimeoutException {
+
+		// Escribir en log el identificador del proceso que llega como parametro
+		writeInitInfo(StringFormat.trim(datosServicio.get("identificadorProceso")), "proceso consultaDispositivosMCD");
+
+		// Retorno del Servicio
+		Map<String, Object> mapaRetorno = new HashMap<String, Object>();
+
+		try {
+			// Configuracion propia del webservice
+			final String user = StringFormat.trim(datosServicio.get("User"));
+			final String password = StringFormat.trim(datosServicio.get("Password"));
+			final long timeoutConnection = NumericFormat.parseLong(datosServicio.get("Timeout.Connection"));
+			final long timeoutReceive = NumericFormat.parseLong(datosServicio.get("Timeout.Receive"));
+
+			String wsdl = StringFormat.trim(datosServicio.get("ws.endpoint"));
+			LOGGER.info("[RowId: " + StringFormat.trim(datosServicio.get("rowId")) + "] WSDL: " + wsdl);
+			LOGGER.info("[RowId: " + StringFormat.trim(datosServicio.get("rowId")) + "] User: " + user);
+			LOGGER.info("[RowId: " + StringFormat.trim(datosServicio.get("rowId")) + "] Timeout.Connection: "
+					+ timeoutConnection);
+			LOGGER.info("[RowId: " + StringFormat.trim(datosServicio.get("rowId")) + "] Timeout.Receive: "
+					+ timeoutReceive);
+			URL url = new URL(wsdl);
+
+			ServicioAutenticacionMCD clienteWs = new ServicioAutenticacionMCD(url);
+			IServicioAutenticacionMCD port = clienteWs.getCASBProcesoAutenticacionService();
+
+			org.apache.cxf.endpoint.Client client = ClientProxy.getClient(port);
+			HTTPConduit conduit = (HTTPConduit) client.getConduit();
+			AuthorizationPolicy au = new AuthorizationPolicy();
+			au.setUserName(user);
+			au.setPassword(password);
+			conduit.setAuthorization(au);
+			HTTPClientPolicy policy = conduit.getClient();
+			policy.setConnectionTimeout(timeoutConnection);
+			policy.setReceiveTimeout(timeoutReceive);
+
+			MCDListaDispositivosRequest requestType = new MCDListaDispositivosRequest();
+
+			/** DATA */
+			int identificadorProceso = (Integer) datosServicio.get("identificadorProceso");
+			requestType.setIdentificadorProceso(identificadorProceso);
+
+			String cuerpo = TOTAL + StringFormat.trim(datosServicio.get("Total")) + JORNADA
+					+ StringFormat.trim(datosServicio.get("Jornada")) + CANAL
+					+ StringFormat.trim(datosServicio.get("Canal")) + PERFIL
+					+ StringFormat.trim(datosServicio.get("Perfil")) + VERSION
+					+ StringFormat.trim(datosServicio.get("VersionServicio"));
+
+			LogTrxDelegate.getInstance().grabarLogTransaccional(
+					StringFormat.trim(datosServicio.get("identificadorProceso")),
+					StringFormat.trim(datosServicio.get("Usuario")), "", "",
+					StringFormat.trim(datosServicio.get("NombreOperacion")) + QUERY_REQUEST, cuerpo);
+
+			MCDListaDispositivosResponse respuesta = port.consultaDispositivosMCD(requestType);
+
+			if (respuesta == null) {
+				LOGGER.info("[Identificador Proceso: " + StringFormat.trim(datosServicio.get("identificadorProceso")) + "] Respuesta es nula");
+				throw new TimeoutException(
+						"Mensaje de respuesta se demoro mas de [" + timeoutConnection + "] milisegundos");
+			} else if (respuesta.getListaDispositivos() == null) {
+				LOGGER.info("[Identificador Proceso: " + StringFormat.trim(datosServicio.get("identificadorProceso"))
+						+ "] Lista dispositivos nulo");
+				throw new NoDataException();
+			}
+
+			mapaRetorno.put("listaDispositivos", respuesta.getListaDispositivos());
+
+			if (mapaRetorno.isEmpty()) {
+				LOGGER.info("[Identificador Proceso: " + StringFormat.trim(datosServicio.get("identificadorProceso"))
+						+ "] Lista de dispositivos nulo");
+				throw new NoDataException();
+			}
+
+			mapaRetorno.put("codMsgRespuesta", "0");
+			mapaRetorno.put("caracterAceptacion", "B");
+
+		} catch (MalformedURLException e) {
+			mapaRetorno.put("codMsgRespuesta", "5");
+			mapaRetorno.put("msgRespuesta", "Ha ocurrido un error inesperado.");
+			datosServicio.put("Password", "");
+			writeError(StringFormat.trim(datosServicio.get("identificadorProceso")), e, datosServicio);
+		} catch (ClassCastException cex) {
+			mapaRetorno.put("codMsgRespuesta", "5");
+			mapaRetorno.put("msgRespuesta", "Ha ocurrido con el dato de entrada.");
+			datosServicio.put("Password", "");
+			writeError(StringFormat.trim(datosServicio.get("identificadorProceso")), cex, datosServicio);
+		} catch (NullPointerException nex) {
+			mapaRetorno.put("codMsgRespuesta", "5");
+			mapaRetorno.put("msgRespuesta", "Ha ocurrido con el dato de entrada.");
+			datosServicio.put("Password", "");
+			writeError(StringFormat.trim(datosServicio.get("identificadorProceso")), nex, datosServicio);
+		}
+
+		writeFinInfo(StringFormat.trim(datosServicio.get("IdentificadorProceso")), "proceso consultaDispositivosMCD");
+		return mapaRetorno;
+	}
+
+	public Map<String, Object> iniciarProcesoBiometrico(Map<String, Object> datosServicio)
+			throws NoDataException, TimeoutException {
+
+		// Escribir en log el identificador del proceso que llega como parametro
+		writeInitInfo(StringFormat.trim(datosServicio.get("mdcSerial")), "proceso iniciarProcesoBiometrico");
+
+		// Retorno del Servicio
+		Map<String, Object> mapaRetorno = new HashMap<String, Object>();
+
+		try {
+			// Configuracion propia del webservice
+			final String user = StringFormat.trim(datosServicio.get("User"));
+			final String password = StringFormat.trim(datosServicio.get("Password"));
+			final long timeoutConnection = NumericFormat.parseLong(datosServicio.get("Timeout.Connection"));
+			final long timeoutReceive = NumericFormat.parseLong(datosServicio.get("Timeout.Receive"));
+
+			String wsdl = StringFormat.trim(datosServicio.get("ws.endpoint"));
+			LOGGER.info("[RowId: " + StringFormat.trim(datosServicio.get("rowId")) + "] WSDL: " + wsdl);
+			LOGGER.info("[RowId: " + StringFormat.trim(datosServicio.get("rowId")) + "] User: " + user);
+			LOGGER.info("[RowId: " + StringFormat.trim(datosServicio.get("rowId")) + "] Timeout.Connection: "
+					+ timeoutConnection);
+			LOGGER.info("[RowId: " + StringFormat.trim(datosServicio.get("rowId")) + "] Timeout.Receive: "
+					+ timeoutReceive);
+			URL url = new URL(wsdl);
+			ServicioAutenticacionMCD clienteWs = new ServicioAutenticacionMCD(url);
+			IServicioAutenticacionMCD port = clienteWs.getCASBProcesoAutenticacionService();
+
+			org.apache.cxf.endpoint.Client client = ClientProxy.getClient(port);
+			HTTPConduit conduit = (HTTPConduit) client.getConduit();
+			AuthorizationPolicy au = new AuthorizationPolicy();
+			au.setUserName(user);
+			au.setPassword(password);
+			conduit.setAuthorization(au);
+			HTTPClientPolicy policy = conduit.getClient();
+			policy.setConnectionTimeout(timeoutConnection);
+			policy.setReceiveTimeout(timeoutReceive);
+			
+			MCDAutenticacionRequest requestType = new MCDAutenticacionRequest();
+			
+			/** DATA */
+			int identificadorProceso = (Integer) datosServicio.get("identificadorProceso");
+			String identificadorFuncionario = (String) datosServicio.get("identificadorFuncionario");
+			String numeroDocumentoCliente = (String) datosServicio.get("numeroDocumentoCliente");
+			String MCDSerial = (String) datosServicio.get("MCDSerial");
+			
+			requestType.setIdentificadorFuncionario(identificadorFuncionario);
+			requestType.setIdentificadorProceso(identificadorProceso);
+			requestType.setMCDSerial(MCDSerial);
+			requestType.setNumeroDocumentoCliente(numeroDocumentoCliente);
+			
+			String cuerpo = TOTAL + StringFormat.trim(datosServicio.get("Total")) + JORNADA
+					+ StringFormat.trim(datosServicio.get("Jornada")) + CANAL
+					+ StringFormat.trim(datosServicio.get("Canal")) + PERFIL
+					+ StringFormat.trim(datosServicio.get("Perfil")) + VERSION
+					+ StringFormat.trim(datosServicio.get("VersionServicio"));
+
+			LogTrxDelegate.getInstance().grabarLogTransaccional(
+					StringFormat.trim(datosServicio.get("MCDSerial")),
+					StringFormat.trim(datosServicio.get("Usuario")), "", "",
+					StringFormat.trim(datosServicio.get("NombreOperacion")) + QUERY_REQUEST, cuerpo);
+			
+			MCDAutenticacionResponse respuesta = port.iniciaProcesoBiometrico(requestType);
+
+			if (respuesta == null) {
+				LOGGER.info("[Identificador Proceso: " + StringFormat.trim(datosServicio.get("identificadorProceso")) + "] Respuesta es nula");
+				throw new TimeoutException(
+						"Mensaje de respuesta se demoro mas de [" + timeoutConnection + "] milisegundos");
+			} else if (respuesta.getMinuciaProceso() == null) {
+				LOGGER.info("[Identificador Proceso: " + StringFormat.trim(datosServicio.get("identificadorProceso"))
+						+ "] Lista dispositivos nulo");
+				throw new NoDataException();
+			}
+
+			mapaRetorno.put("operacionExitosa", respuesta.isOperacionExitosa());
+			mapaRetorno.put("mensaje", respuesta.getMensaje());
+			mapaRetorno.put("minuciaProceso", respuesta.getMinuciaProceso() != null ?  respuesta.getMinuciaProceso() : "");
+			mapaRetorno.put("MCDMensaje", respuesta.getMCDMensaje());
+			mapaRetorno.put("autenticado", respuesta.isAutenticado());
+			mapaRetorno.put("scoreObtenido", respuesta.getScoreObtenido());
+			
+			mapaRetorno.put("codMsgRespuesta", "0");
+			mapaRetorno.put("caracterAceptacion", "B");
+			
+		} catch (MalformedURLException e) {
+			mapaRetorno.put("codMsgRespuesta", "5");
+			mapaRetorno.put("msgRespuesta", "Ha ocurrido un error inesperado.");
+			datosServicio.put("Password", "");
+			writeError(StringFormat.trim(datosServicio.get("identificadorProceso")), e, datosServicio);
+		} catch (ClassCastException cex) {
+			mapaRetorno.put("codMsgRespuesta", "5");
+			mapaRetorno.put("msgRespuesta", "Ha ocurrido con el dato de entrada.");
+			datosServicio.put("Password", "");
+			writeError(StringFormat.trim(datosServicio.get("identificadorProceso")), cex, datosServicio);
+		} catch (NullPointerException nex) {
+			mapaRetorno.put("codMsgRespuesta", "5");
+			mapaRetorno.put("msgRespuesta", "Ha ocurrido con el dato de entrada.");
+			datosServicio.put("Password", "");
+			writeError(StringFormat.trim(datosServicio.get("identificadorProceso")), nex, datosServicio);
+		}
+		return mapaRetorno;
+	}
+	
+	public Map<String, Object> consultarBiometrico(Map<String, Object> datosServicio)
+			throws NoDataException, TimeoutException {
+
+		// Escribir en log el identificador del proceso que llega como parametro
+		writeInitInfo(StringFormat.trim(datosServicio.get("mdcSerial")), "proceso consultarBiometrico");
+
+		// Retorno del Servicio
+		Map<String, Object> mapaRetorno = new HashMap<String, Object>();
+
+		try {
+			// Configuracion propia del webservice
+			final String user = StringFormat.trim(datosServicio.get("User"));
+			final String password = StringFormat.trim(datosServicio.get("Password"));
+			final long timeoutConnection = NumericFormat.parseLong(datosServicio.get("Timeout.Connection"));
+			final long timeoutReceive = NumericFormat.parseLong(datosServicio.get("Timeout.Receive"));
+
+			String wsdl = StringFormat.trim(datosServicio.get("ws.endpoint"));
+			LOGGER.info("[RowId: " + StringFormat.trim(datosServicio.get("rowId")) + "] WSDL: " + wsdl);
+			LOGGER.info("[RowId: " + StringFormat.trim(datosServicio.get("rowId")) + "] User: " + user);
+			LOGGER.info("[RowId: " + StringFormat.trim(datosServicio.get("rowId")) + "] Timeout.Connection: "
+					+ timeoutConnection);
+			LOGGER.info("[RowId: " + StringFormat.trim(datosServicio.get("rowId")) + "] Timeout.Receive: "
+					+ timeoutReceive);
+			URL url = new URL(wsdl);
+			ServicioAutenticacionMCD clienteWs = new ServicioAutenticacionMCD(url);
+			IServicioAutenticacionMCD port = clienteWs.getCASBProcesoAutenticacionService();
+
+			org.apache.cxf.endpoint.Client client = ClientProxy.getClient(port);
+			HTTPConduit conduit = (HTTPConduit) client.getConduit();
+			AuthorizationPolicy au = new AuthorizationPolicy();
+			au.setUserName(user);
+			au.setPassword(password);
+			conduit.setAuthorization(au);
+			HTTPClientPolicy policy = conduit.getClient();
+			policy.setConnectionTimeout(timeoutConnection);
+			policy.setReceiveTimeout(timeoutReceive);
+			
+			MCDAutenticacionRequest requestType = new MCDAutenticacionRequest();
+			
+			/** DATA */
+			int identificadorProceso = (Integer) datosServicio.get("identificadorProceso");
+			String identificadorFuncionario = (String) datosServicio.get("identificadorFuncionario");
+			String numeroDocumentoCliente = (String) datosServicio.get("numeroDocumentoCliente");
+			String MCDSerial = (String) datosServicio.get("MCDSerial");
+			
+			requestType.setIdentificadorFuncionario(identificadorFuncionario);
+			requestType.setIdentificadorProceso(identificadorProceso);
+			requestType.setMCDSerial(MCDSerial);
+			requestType.setNumeroDocumentoCliente(numeroDocumentoCliente);
+			
+			String cuerpo = TOTAL + StringFormat.trim(datosServicio.get("Total")) + JORNADA
+					+ StringFormat.trim(datosServicio.get("Jornada")) + CANAL
+					+ StringFormat.trim(datosServicio.get("Canal")) + PERFIL
+					+ StringFormat.trim(datosServicio.get("Perfil")) + VERSION
+					+ StringFormat.trim(datosServicio.get("VersionServicio"));
+
+			LogTrxDelegate.getInstance().grabarLogTransaccional(
+					StringFormat.trim(datosServicio.get("MCDSerial")),
+					StringFormat.trim(datosServicio.get("Usuario")), "", "",
+					StringFormat.trim(datosServicio.get("NombreOperacion")) + QUERY_REQUEST, cuerpo);
+			
+			MCDAutenticacionResponse respuesta = port.consultaBiometrico(requestType);
+
+			if (respuesta == null) {
+				LOGGER.info("[Identificador Proceso: " + StringFormat.trim(datosServicio.get("identificadorProceso")) + "] Respuesta es nula");
+				throw new TimeoutException(
+						"Mensaje de respuesta se demoro mas de [" + timeoutConnection + "] milisegundos");
+			} else if (respuesta.getMinuciaProceso() == null) {
+				LOGGER.info("[Identificador Proceso: " + StringFormat.trim(datosServicio.get("identificadorProceso"))
+						+ "] Lista dispositivos nulo");
+				throw new NoDataException();
+			}
+
+			mapaRetorno.put("operacionExitosa", respuesta.isOperacionExitosa());
+			mapaRetorno.put("mensaje", respuesta.getMensaje());
+			mapaRetorno.put("minuciaProceso", respuesta.getMinuciaProceso() != null ?  respuesta.getMinuciaProceso() : "");
+			mapaRetorno.put("MCDMensaje", respuesta.getMCDMensaje());
+			mapaRetorno.put("autenticado", respuesta.isAutenticado());
+			mapaRetorno.put("scoreObtenido", respuesta.getScoreObtenido());
+			
+			mapaRetorno.put("codMsgRespuesta", "0");
+			mapaRetorno.put("caracterAceptacion", "B");
+			
+		} catch (MalformedURLException e) {
+			mapaRetorno.put("codMsgRespuesta", "5");
+			mapaRetorno.put("msgRespuesta", "Ha ocurrido un error inesperado.");
+			datosServicio.put("Password", "");
+			writeError(StringFormat.trim(datosServicio.get("identificadorProceso")), e, datosServicio);
+		} catch (ClassCastException cex) {
+			mapaRetorno.put("codMsgRespuesta", "5");
+			mapaRetorno.put("msgRespuesta", "Ha ocurrido con el dato de entrada.");
+			datosServicio.put("Password", "");
+			writeError(StringFormat.trim(datosServicio.get("identificadorProceso")), cex, datosServicio);
+		} catch (NullPointerException nex) {
+			mapaRetorno.put("codMsgRespuesta", "5");
+			mapaRetorno.put("msgRespuesta", "Ha ocurrido con el dato de entrada.");
+			datosServicio.put("Password", "");
+			writeError(StringFormat.trim(datosServicio.get("identificadorProceso")), nex, datosServicio);
+		}
+		return mapaRetorno;
+	}
+	
+	
+	
+	public Map<String, String> removerBiometricoWifi(String nombreUsuario) throws NoDataException, TimeoutException, Exception {
+		
+		Map<String, String> mapaRetorno = new HashMap<String, String>();
+		
+		try {
+			
+			MainDataBase.getInstance().removerBiometricoWifi(nombreUsuario);
+			
+			mapaRetorno.put("codMsgRespuesta", "0");
+			mapaRetorno.put("caracterAceptacion", "B");
+			mapaRetorno.put("msgRespuesta", "Registro removido de forma exitosa");
+			
+		} catch (IllegalArgumentException e) {
+			
+			LOGGER.error(e.getMessage());
+			mapaRetorno.put("codMsgRespuesta", "5");
+			mapaRetorno.put("caracterAceptacion", "M");
+			mapaRetorno.put("msgRespuesta", "Ha ocurrido un error, el registro no existe");
+
+		}
+		
+		return mapaRetorno;
+
+	}
+	
+	
+	public Map<String, Object> crearBiometricoWifi(BiometricoWifiResType datosBiometricoWifi) throws NoDataException, TimeoutException, Exception {
+		
+		Map<String, Object> mapaRetorno = new HashMap<String, Object>();
+		List<String> idsErroresActualizacion = new ArrayList<String>();
+		BiometricoWifiDto biometricoWifiDto = new BiometricoWifiDto();
+		
+		biometricoWifiDto.setCodigoBiometrico(datosBiometricoWifi.getCodigoBiometrico());
+		biometricoWifiDto.setEstado(datosBiometricoWifi.getEstado());
+		biometricoWifiDto.setNombreUsuario(datosBiometricoWifi.getNombreUsuario());
+		biometricoWifiDto.setCampoX(datosBiometricoWifi.getCampoX());
+			
+		try {
+				
+			MainDataBase.getInstance().crearBiometricoWifi(biometricoWifiDto);
+				
+		} catch (Exception e) {
+				
+			LOGGER.error(e.getMessage());
+			idsErroresActualizacion.add(datosBiometricoWifi.getCodigoBiometrico());
+				
+		}
+			
+		
+		
+		if (idsErroresActualizacion.isEmpty()) {
+			
+			mapaRetorno.put("codMsgRespuesta", "0");
+			mapaRetorno.put("caracterAceptacion", "B");
+			mapaRetorno.put("msgRespuesta", "Registro creado de forma exitosa");
+			
+		} else {
+			
+			mapaRetorno.put("codMsgRespuesta", "5");
+			mapaRetorno.put("caracterAceptacion", "M");
+			mapaRetorno.put("msgRespuesta", "Ha ocurrido un error con el registro que se quiere crear");
+			mapaRetorno.put("idsErrores", idsErroresActualizacion);
+			
+		}
+		
+		return mapaRetorno;
+
+	}
+	
+	public Map<String, Object> actualizarBiometricoWifi(BiometricoWifiResType datosBiometricoWifi) throws NoDataException, TimeoutException, Exception {
+		
+		Map<String, Object> mapaRetorno = new HashMap<String, Object>();
+		List<String> idsErroresActualizacion = new ArrayList<String>();
+		
+			
+		String codigoBiometrico = datosBiometricoWifi.getCodigoBiometrico();
+		String estado = datosBiometricoWifi.getEstado();
+		String nombreUsuario = datosBiometricoWifi.getNombreUsuario();
+				
+		try {
+					
+			MainDataBase.getInstance().actualizarBiometricoWifi(codigoBiometrico, nombreUsuario, estado);
+					
+		} catch (Exception e) {
+					
+			LOGGER.error(e.getMessage());
+			idsErroresActualizacion.add(nombreUsuario);
+			idsErroresActualizacion.add(codigoBiometrico);
+					
+		}
+			
+		
+		if (idsErroresActualizacion.isEmpty()) {
+			
+			mapaRetorno.put("codMsgRespuesta", "0");
+			mapaRetorno.put("caracterAceptacion", "B");
+			mapaRetorno.put("msgRespuesta", "Registro actaulizado de forma exitosa");
+			
+		} else {
+			
+			mapaRetorno.put("codMsgRespuesta", "5");
+			mapaRetorno.put("caracterAceptacion", "M");
+			mapaRetorno.put("msgRespuesta", "Ha ocurrido un error con el registro que se quiere actualizar");
+			mapaRetorno.put("idsErrores", idsErroresActualizacion);
+			
+		}
+		
+		return mapaRetorno;
+
+	}
+	
+	
+	public Map<String, Object> consultarBiometricoWifi(String nombreUsuario) throws NoDataException, TimeoutException, Exception {
+		
+		Map<String, Object> mapaRetorno = new HashMap<String, Object>();
+		
+		try {
+			
+			BiometricoWifiDto biometricoWifiDto = new BiometricoWifiDto();
+			
+			biometricoWifiDto = MainDataBase.getInstance().buscarBiometricoWifiPorCodigoYNombreUsuario(nombreUsuario);
+
+			mapaRetorno.put("codMsgRespuesta", "0");
+			mapaRetorno.put("caracterAceptacion", "B");
+			mapaRetorno.put("msgRespuesta", "Respuesta exitosa");
+			mapaRetorno.put("biometricoWifi", biometricoWifiDto);
+
+			
+		} catch (Exception e) {
+			
+			LOGGER.error(e.getMessage());
+			mapaRetorno.put("codMsgRespuesta", "5");
+			mapaRetorno.put("caracterAceptacion", "M");
+			mapaRetorno.put("msgRespuesta", "Ha ocurrido un error, no se encontro ningun resultado para la busqueda");
+			
+		}
+		
+		return mapaRetorno;
+
+	}
+	
+	
+	public Map<String, Object> consultarListaBiometricoWifi() throws NoDataException, TimeoutException, Exception {
+		
+		Map<String, Object> mapaRetorno = new HashMap<String, Object>();
+		
+		try {
+			
+			List<BiometricoWifiDto> listaBiometricosWifi = MainDataBase.getInstance().consultarListaBiometricoWifi();
+						
+			mapaRetorno.put("codMsgRespuesta", "0");
+	        mapaRetorno.put("caracterAceptacion", "B");
+	        mapaRetorno.put("msgRespuesta", "");
+	        mapaRetorno.put("totalRegistros", listaBiometricosWifi.size());
+	        mapaRetorno.put("biometricosWifi", listaBiometricosWifi);
+			
+		} catch (Exception e) {
+			
+			LOGGER.error(e.getMessage());
+	        mapaRetorno.put("codMsgRespuesta", "5");
+	        mapaRetorno.put("caracterAceptacion", "M");
+	        mapaRetorno.put("msgRespuesta", "Ha ocurrido un error, no fue posible obtener la lista completa de biometricos wifi");
+			
+		}
+		
+		return mapaRetorno;
+
+	}
+	
+	
+
+	private void writeError(String msg, Exception rex, Map<String, Object> datos) {
+		LOGGER.error("[RowId: " + msg + "] Error en la conexión con el bus: " + rex.getMessage(), rex);
+		StringBuilder str = new StringBuilder(3072);
+		for (Map.Entry<String, Object> entry : datos.entrySet()) {
+			str.append(entry.getKey());
+			str.append("=");
+			str.append(entry.getValue());
+			str.append("\r\n");
+		}
+
+		LOGGER.error("Datos de entrada:\r\n" + str.toString());
+	}
+
+	private void writeInitInfo(String rowId, String msg) {
+		if (LOGGER.isInfoEnabled()) {
+			LOGGER.info("[RowId: " + rowId + "] Inicio " + msg);
+		}
+	}
+
+	private void writeFinInfo(String rowId, String msg) {
+		if (LOGGER.isInfoEnabled()) {
+			LOGGER.info("[RowId: " + rowId + "] Fin " + msg);
+		}
+	}
+
+}
