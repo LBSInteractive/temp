@@ -1,0 +1,328 @@
+package com.davivienda.piac.api.autenticacion.controller;
+
+import java.util.concurrent.TimeoutException;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.stereotype.Controller;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseBody;
+
+import com.davivienda.piac.api.autenticacion.Autenticacion;
+import com.davivienda.piac.api.autenticacion.exception.AutenticacionException;
+import com.davivienda.piac.api.common.excepciones.EntradaIncorrectaException;
+import com.davivienda.piac.api.common.excepciones.NoDataException;
+import com.davivienda.piac.api.common.vo.ConsultaClienteVo;
+import com.davivienda.piac.api.common.vo.ConsultaDispositivosMCDVo;
+import com.davivienda.piac.api.common.vo.IniciarProcesoBiometricoVo;
+import com.davivienda.pic.delegate.autenticacion.beans.BiometricoWifiResType;
+
+@RequestMapping("/autenticacion")
+@Controller
+public class AutenticacionController extends AbstractController {
+
+	private static final String SALIDA_JSON = "application/json; charset=utf-8";
+	private static final Logger LOGGER = LoggerFactory.getLogger(AutenticacionController.class);
+	
+	@Autowired
+	private Autenticacion autenticacion;
+	
+	@RequestMapping(value = "/consultaCliente", method = RequestMethod.POST, produces = SALIDA_JSON)
+	public ResponseEntity<Object> consultaCliente(@RequestBody ConsultaClienteVo data){
+		
+		initLogger(data.getRowId(), "consultaCliente");
+		ResponseEntity<Object> responseEntity = null;
+		try{			
+			responseEntity = responseEntityOk(autenticacion.consultaCliente(data), HttpStatus.OK.getReasonPhrase());
+
+		}catch(EntradaIncorrectaException e){
+			responseEntity = responseEntityFailed(e.getMessage(), HttpStatus.BAD_REQUEST);
+		}catch(AutenticacionException e){
+			LOGGER.error(e.getMessage());
+			responseEntity = responseEntityFailed(e.getMessage(), HttpStatus.EXPECTATION_FAILED);
+		} catch (NoDataException e) {
+			responseEntity = responseEntityOkWithoutData();
+		} catch (TimeoutException e) {
+			responseEntity = responseEntityFailed(e.getMessage(), HttpStatus.REQUEST_TIMEOUT);
+		}
+
+		endLogger(data.getRowId(), "consultaCliente");
+		
+		return responseEntity;
+	}
+	
+	@RequestMapping(value = "/consultaDispositivosMCD", method = RequestMethod.POST, produces = SALIDA_JSON)
+	public ResponseEntity<Object> consultaDispositivosMCD(@RequestBody ConsultaDispositivosMCDVo data){
+		
+		initLogger(data.getIdentificadorProceso()+"", "consultaDispositivosMCD");
+		ResponseEntity<Object> responseEntity = null;
+		try{			
+			responseEntity = responseEntityOk(autenticacion.consultaDispositivosMCD(data), HttpStatus.OK.getReasonPhrase());
+
+		}catch(EntradaIncorrectaException e){
+			responseEntity = responseEntityFailed(e.getMessage(), HttpStatus.BAD_REQUEST);
+		}catch(AutenticacionException e){
+			LOGGER.error(e.getMessage());
+			responseEntity = responseEntityFailed(e.getMessage(), HttpStatus.EXPECTATION_FAILED);
+		} catch (NoDataException e) {
+			responseEntity = responseEntityOkWithoutData();
+		} catch (TimeoutException e) {
+			responseEntity = responseEntityFailed(e.getMessage(), HttpStatus.REQUEST_TIMEOUT);
+		}
+
+		endLogger(data.getRowId(), "consultaDispositivosMCD");
+		
+		return responseEntity;
+	}	
+	
+	@RequestMapping(value = "/iniciaProcesoBiometrico", method = RequestMethod.POST, produces = SALIDA_JSON)
+	public ResponseEntity<Object> iniciaProcesoBiometrico(@RequestBody IniciarProcesoBiometricoVo data){
+		
+		initLogger(data.getMcdSerial()+"", "iniciarProcesoBiometrico");
+		ResponseEntity<Object> responseEntity = null;
+		try{			
+			responseEntity = responseEntityOk(autenticacion.iniciarProcesoBiometrico(data), HttpStatus.OK.getReasonPhrase());
+
+		}catch(EntradaIncorrectaException e){
+			responseEntity = responseEntityFailed(e.getMessage(), HttpStatus.BAD_REQUEST);
+		}catch(AutenticacionException e){
+			LOGGER.error(e.getMessage());
+			responseEntity = responseEntityFailed(e.getMessage(), HttpStatus.EXPECTATION_FAILED);
+		} catch (NoDataException e) {
+			responseEntity = responseEntityOkWithoutData();
+		} catch (TimeoutException e) {
+			responseEntity = responseEntityFailed(e.getMessage(), HttpStatus.REQUEST_TIMEOUT);
+		}
+
+		endLogger(data.getRowId(), "iniciarProcesoBiometrico");
+		
+		return responseEntity;
+	}
+	
+	@RequestMapping(value = "/consultaBiometrico", method = RequestMethod.POST, produces = SALIDA_JSON)
+	public ResponseEntity<Object> consultaBiometrico(@RequestBody IniciarProcesoBiometricoVo data){
+		
+		initLogger(data.getMcdSerial()+"", "consultaBiometrico");
+		ResponseEntity<Object> responseEntity = null;
+		try{			
+			responseEntity = responseEntityOk(autenticacion.consultarBiometrico(data), HttpStatus.OK.getReasonPhrase());
+
+		}catch(EntradaIncorrectaException e){
+			responseEntity = responseEntityFailed(e.getMessage(), HttpStatus.BAD_REQUEST);
+		}catch(AutenticacionException e){
+			LOGGER.error(e.getMessage());
+			responseEntity = responseEntityFailed(e.getMessage(), HttpStatus.EXPECTATION_FAILED);
+		} catch (NoDataException e) {
+			responseEntity = responseEntityOkWithoutData();
+		} catch (TimeoutException e) {
+			responseEntity = responseEntityFailed(e.getMessage(), HttpStatus.REQUEST_TIMEOUT);
+		}
+
+		endLogger(data.getRowId(), "consultaBiometrico");
+		
+		return responseEntity;
+	}
+	
+	/**
+	 * Metodo que permite eliminar un registro de relacion biometrico-usuario
+	 * @param datosBiometricoWifi datos del rol relacion webapplet que se desea eliminar
+	 * @return responseEntity
+	 */
+	@RequestMapping(value = "/removerBiometricoWifi", method = RequestMethod.DELETE, produces = SALIDA_JSON)
+	@ResponseBody
+	public ResponseEntity<Object> removerBiometricoWifi(@RequestParam("nombreUsuario") String nombreUsuario) {
+		
+		LOGGER.info("--- INICIO Servicio: removerBiometricoWifi");
+		
+		ResponseEntity<Object> responseEntity = null;
+		
+		try {
+
+			responseEntity = responseEntityOk(autenticacion.removerBiometricoWifi(nombreUsuario), HttpStatus.OK.getReasonPhrase());
+		
+		} catch (EntradaIncorrectaException e) {
+			
+			LOGGER.error(e.getMessage(), e);
+			responseEntity = responseEntityFailed(e.getMessage(), HttpStatus.BAD_REQUEST);
+			
+		} catch (Exception e) {
+
+			LOGGER.error(e.getMessage(), e);
+			responseEntity = responseEntityFailed(e.getMessage(), HttpStatus.EXPECTATION_FAILED);
+			
+		}
+		
+		LOGGER.info("--- FIN Servicio: removerBiometricoWifi");
+
+		return responseEntity;
+
+	}
+	
+	
+	/**
+	 * Metodo que permite consultar los registros de biometricos wifi y sus usuarios relacionados
+	 * @param biometricoWifi, corresponde al registro asociado a un usuario especifico
+	 * @return responseEntity
+	 */
+	/*@RequestMapping(value = "/obtenerBiometricoWifi", method = RequestMethod.GET, produces = SALIDA_JSON)
+	@ResponseBody
+	public ResponseEntity<Object> consultarBiometricoWifi(@RequestParam(value = "biometricoWifi") String biometricoWifi) {
+		
+		LOGGER.info("--- INICIO Servicio: obtenerBiometricoWifi");
+		
+		ResponseEntity<Object> responseEntity = null;
+		
+		try {
+
+			responseEntity = responseEntityOk(autenticacion.obtenerBiometricoWifi(biometricoWifi), HttpStatus.OK.getReasonPhrase());
+		
+		} catch (EntradaIncorrectaException e) {
+			
+			LOGGER.error(e.getMessage(), e);
+			responseEntity = responseEntityFailed(e.getMessage(), HttpStatus.BAD_REQUEST);
+			
+		} catch (Exception e) {
+
+			LOGGER.error(e.getMessage(), e);
+			responseEntity = responseEntityFailed(e.getMessage(), HttpStatus.EXPECTATION_FAILED);
+			
+		}
+		
+		LOGGER.info("--- FIN Servicio: obtenerCheckListWa");
+
+		return responseEntity;
+
+	}*/
+	
+	
+	/**
+	 * Metodo que permite crear un registro en la tabla de Biometrico_Wifi
+	 * @param datosBiometricoWifi que se desea crear
+	 * @return responseEntity
+	 */
+	@RequestMapping(value = "/crearBiometricoWifi", method = RequestMethod.POST, produces = SALIDA_JSON)
+	public ResponseEntity<Object> crearBiometricoWifi(@RequestBody BiometricoWifiResType datosBiometricoWifi) {
+		
+		LOGGER.info("--- INICIO Servicio: crearBiometricoWifi");
+		
+		ResponseEntity<Object> responseEntity = null;
+		
+		try {
+			
+			responseEntity = responseEntityOk(autenticacion.crearBiometricoWifi(datosBiometricoWifi), HttpStatus.OK.getReasonPhrase());
+
+			
+		} catch (EntradaIncorrectaException e) {
+			
+			LOGGER.error(e.getMessage(), e);
+			responseEntity = responseEntityFailed(e.getMessage(), HttpStatus.BAD_REQUEST);
+			
+		} catch (Exception e) {
+			
+			LOGGER.error(e.getMessage(), e);
+			responseEntity = responseEntityFailed(e.getMessage(), HttpStatus.EXPECTATION_FAILED);
+			
+		}
+		
+		LOGGER.info("--- FIN Servicio: crearBiometricoWifi");
+		
+		return responseEntity;
+		
+	}
+	
+	
+	/**
+	 * Metodo que permite actualizar un registro en la tabla de Biometrico_Wifi
+	 * @param datosBiometricoWifi que se desea actualizar
+	 * @return responseEntity
+	 */
+	@RequestMapping(value = "/actualizarBiometricoWifi", method = RequestMethod.PUT, produces = SALIDA_JSON)
+	public ResponseEntity<Object> actualizarBiometricoWifi(@RequestBody BiometricoWifiResType datosBiometricoWifi) {
+		
+		LOGGER.info("--- INICIO Servicio: actualizarBiometricoWifi");
+		
+		ResponseEntity<Object> responseEntity = null;
+		
+		try {
+			
+			responseEntity = responseEntityOk(autenticacion.actualizarBiometricoWifi(datosBiometricoWifi), HttpStatus.OK.getReasonPhrase());
+
+			
+		} catch (EntradaIncorrectaException e) {
+			
+			LOGGER.error(e.getMessage(), e);
+			responseEntity = responseEntityFailed(e.getMessage(), HttpStatus.BAD_REQUEST);
+			
+		} catch (Exception e) {
+			
+			LOGGER.error(e.getMessage(), e);
+			responseEntity = responseEntityFailed(e.getMessage(), HttpStatus.EXPECTATION_FAILED);
+			
+		}
+		
+		LOGGER.info("--- FIN Servicio: actualizarBiometricoWifi");
+		
+		return responseEntity;
+		
+	}
+	
+	
+
+	@RequestMapping(value = "/consultarBiometricoWifi", method = RequestMethod.GET, produces = SALIDA_JSON)
+	public ResponseEntity<Object> consultarBiometricoWifi(@RequestParam("nombreUsuario") String nombreUsuario) {
+		
+		LOGGER.info("--- INICIO Servicio: consultarBiometricoWifi");
+		
+		ResponseEntity<Object> responseEntity = null;
+		
+		try {			
+				
+			responseEntity = responseEntityOk(autenticacion.consultarBiometricoWifi(nombreUsuario), HttpStatus.OK.getReasonPhrase());
+				
+			
+		} catch (Exception e) {
+			
+			LOGGER.error(e.getMessage(), e);
+			responseEntity = responseEntityFailed(e.getMessage(), HttpStatus.EXPECTATION_FAILED);
+			
+		}
+		
+		LOGGER.info("--- FIN Servicio: consultarBiometricoWifi");
+		
+		return responseEntity;
+		
+	}
+	
+	
+	@RequestMapping(value = "/consultarListaBiometricoWifi", method = RequestMethod.GET, produces = SALIDA_JSON)
+	public ResponseEntity<Object> consultarListaBiometricoWifi() {
+		
+		LOGGER.info("--- INICIO Servicio: consultarListaBiometricoWifi");
+		
+		ResponseEntity<Object> responseEntity = null;
+		
+		try {			
+				
+			responseEntity = responseEntityOk(autenticacion.consultarListaBiometricoWifi(), HttpStatus.OK.getReasonPhrase());
+				
+			
+		} catch (Exception e) {
+			
+			LOGGER.error(e.getMessage(), e);
+			responseEntity = responseEntityFailed(e.getMessage(), HttpStatus.EXPECTATION_FAILED);
+			
+		}
+		
+		LOGGER.info("--- FIN Servicio: consultarListaBiometricoWifi");
+		
+		return responseEntity;
+		
+	}
+	
+}
